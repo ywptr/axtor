@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Secrets and local configuration
+.env.*
+!.env.example
+*.pem
+*.key

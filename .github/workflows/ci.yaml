@@ -1,0 +1,38 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: axtor
+          POSTGRES_PASSWORD: ci-disposable-password
+          POSTGRES_DB: axtor
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U axtor -d axtor"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      AXTOR_ENVIRONMENT: test
+      AXTOR_DATABASE_URL: postgresql+asyncpg://axtor:ci-disposable-password@127.0.0.1:5432/axtor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: pip install -c constraints.txt -e '.[dev]'
+      - run: ruff check . && ruff format --check .
+      - run: mypy
+      - run: pytest
+      - run: |
+          alembic upgrade head
+          alembic current
+          alembic check
+          alembic downgrade base
+          alembic upgrade head
+      - run: python scripts/verify_database.py
