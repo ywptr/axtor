@@ -55,3 +55,16 @@ and disabled in production. Containers run as an unprivileged user, with publish
 local ports bound to loopback. Production requires TLS termination, secret
 injection, deployment-specific database security and an operational rollout plan.
 Future domain APIs must document versioned contracts before consumer adoption.
+
+
+## Suite development networking
+
+The explicit `compose.dev.yaml` overlay maps loopback port 8013 to the existing
+container port 8000. Port 5183 is reserved without a listener. The overlay replaces
+base port publications, mounts only source read-only, and sets PYTHONPATH to the
+mount. Uvicorn's native source reloader restarts workers; image-installed
+dependencies remain outside the mount. Development reload never invokes Alembic.
+The database has no host publication and joins a project-scoped internal network;
+the API joins that network and the project default network. No shared suite
+networks are attached. The base Compose and Dockerfile remain unchanged; only
+explicitly selected development invocations apply this overlay.

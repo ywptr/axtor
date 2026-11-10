@@ -1,0 +1,34 @@
+# Explicit development overlay; requires Docker Compose >= 2.24.4 for !override/!reset.
+services:
+  api:
+    ports: !override
+      - "127.0.0.1:8013:8000"
+    environment:
+      AXTOR_ENVIRONMENT: development
+      PYTHONPATH: /app/src
+    volumes:
+      - ./src:/app/src:ro
+    command:
+      - python
+      - -m
+      - uvicorn
+      - axtor.main:create_app
+      - --factory
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --no-proxy-headers
+      - --reload
+      - --reload-dir
+      - /app/src
+    networks:
+      - default
+      - database
+  db:
+    ports: !reset []
+    networks:
+      - database
+networks:
+  database:
+    internal: true

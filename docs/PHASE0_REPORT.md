@@ -1,5 +1,9 @@
 # Phase 0 delivery and verification
 
+**Closure: PASS.** Live development acceptance was confirmed by the operator in
+the regular SSH session on `5480-deb13`. The initial delivery sections below are
+historical; the final acceptance section records the current status.
+
 ## Scope and initial state
 
 Repository: `ywptr/axtor`, branch `main`, HEAD `4fb898c` (`Initial commit`).
@@ -190,3 +194,68 @@ endpoints exist. Base image digests and dependency hashes remain unpinned.
    tenant-owned persistence. Introduce reviewed explicit migrations.
 5. Implement and test the first governance use case only after identity,
    ownership, policy and consumer-enforcement contracts are agreed.
+
+
+## Final runtime acceptance and closure — 2026-11-10
+
+**PASS**, based on operator-confirmed live acceptance in the regular SSH
+environment on `5480-deb13`. Evidence was supplied in the closure request;
+a raw SSH transcript and exact live revision value were not supplied. These
+results supersede the earlier Docker-access blocker and infrastructure-pending
+statements. Codex did not independently repeat the Docker checks.
+
+| Acceptance criterion | Result and evidence |
+| --- | --- |
+| Development containers | PASS — both API and PostgreSQL healthy. |
+| API publication | PASS — API available at 127.0.0.1:8013. |
+| Source mount | PASS — correct read-only source bind verified live. |
+| Uvicorn native reload | PASS — temporary source modification observed through container reload. |
+| Restoration | PASS — original source restored byte-for-byte. |
+| HTTP probes after reload | PASS — /health, /ready and /openapi.json return HTTP 200. |
+| PostgreSQL host isolation | PASS — no published host ports. |
+| Schema and migration revision | PASS — unchanged across acceptance; no migrations executed. |
+| Startup migrations | PASS — source/configuration launch only Uvicorn; live reload left schema and revision unchanged. |
+
+Expected migration head is `0001`, an empty infrastructure baseline with no
+application tables. An unchanged live revision does not imply that migrations
+were applied. No upgrade, downgrade, stamp, or database mutation was performed
+as part of acceptance or closure. No schema changes are being shipped, so a
+new disposable migration cycle was not run during closure.
+
+The development overlay declares the project-scoped `postgres_data` volume at
+`/var/lib/postgresql/data`. The manual acceptance script checks the live volume
+name as well as mount, ports, revision, schema and reload. The operator's summary
+does not separately quote the volume inspection output.
+
+### Execution environment diagnosis
+
+The regular SSH user has Docker group membership (GID 989). Codex's effective
+process groups contained only 1000 and 65534; its namespace UID/GID maps contained
+`1000 0 1`, and the socket appeared as UID/GID 65534. This is a Codex execution
+environment limitation, not an outstanding application acceptance failure. No
+socket permissions, group membership, daemon configuration or application code
+were changed to work around it.
+
+### Closure scope and validation
+
+Included Phase 0 infrastructure: `compose.dev.yaml`, `.env.example`, development
+instructions in `README.md` and `docs/ARCHITECTURE.md`, both validation reports,
+and `scripts/phase0_acceptance.sh`. Existing application source, migrations,
+Dockerfile, base Compose, dependencies and CI remain unchanged.
+
+The manual script uses read-only Docker inspection and schema dumps; its only
+source edit is a temporary OpenAPI title restored on exceptions and catchable
+INT/TERM/HUP. An exclusive source backup supports recovery after uncatchable
+interruption. It never runs migrations or container lifecycle operations.
+
+Closure checks: `git diff --check`, `.venv/bin/ruff check .`,
+`.venv/bin/ruff format --check .`, `.venv/bin/mypy`, `.venv/bin/pytest -q`,
+shell syntax and embedded Python syntax validation all passed. Ruff reported
+“All checks passed!”, formatting reported 19 files already formatted, mypy
+reported no issues in 14 source files, and pytest reported 20 passed, 1 warning
+in 1.27s. The existing Starlette TestClient HTTPX
+deprecation warning remains. No secrets or temporary backups are included.
+
+One local Phase 0 closure commit is authorized; no push is authorized or performed.
+Phase 1, production rollout, domain logic and cross-application changes remain
+outside this closure.

@@ -6,63 +6,106 @@ application infrastructure only. See [architecture](docs/ARCHITECTURE.md) and
 
 ## Local development
 
-Requires Python 3.12+ (VM target: 3.13), Docker and Docker Compose v2.
+Requires Docker and Docker Compose **2.24.4+** (overlay uses `!override` and
+`!reset`). Python 3.12+ (VM target: 3.13) is needed for host-side checks.
+
+```sh
+cp .env.example .env
+# Set POSTGRES_PASSWORD to a unique URL-safe local password.
+docker compose -p axtor-dev -f compose.yaml -f compose.dev.yaml up --build -d
+# Explicit operator action; never run automatically at startup or reload:
+docker compose -p axtor-dev -f compose.yaml -f compose.dev.yaml exec api alembic upgrade head
+```
+
+API: <http://127.0.0.1:8013>. Development docs:
+<http://127.0.0.1:8013/docs>; schema: <http://127.0.0.1:8013/openapi.json>.
+Host `127.0.0.1:8013` maps to container port **8000**. Port **5183** is reserved
+for a future Axtor web/admin frontend; nothing in this repository listens on it.
+There is no Payload CMS, Next.js, or admin frontend in this engine.
+
+The explicit development overlay bind-mounts only `./src` at `/app/src` read-only.
+`PYTHONPATH=/app/src` makes Uvicorn import mounted code instead of the installed
+package copy. Native `--reload --reload-dir /app/src` watches Python source using
+Uvicorn's polling fallback; no watcher dependency is required. Editing host Python
+files restarts the worker without rebuilding. Dependencies remain installed under
+`/usr/local/lib`, outside the mount. A host `.venv` is never mounted.
+
+Rebuild after dependency/constraints, packaging or Dockerfile changes using the
+startup command above. Restart/recreate after environment or Compose changes.
+Migration files are copied into the image, so rebuild after changing them, then
+run Alembic explicitly. README/docs changes alone need no running-service rebuild.
+
+```sh
+curl -i http://127.0.0.1:8013/health
+curl -i http://127.0.0.1:8013/ready
+docker compose -p axtor-dev -f compose.yaml -f compose.dev.yaml logs -f api
+docker compose -p axtor-dev -f compose.yaml -f compose.dev.yaml down
+```
+
+`/health` requires no database; `/ready` returns 503 on a connectivity failure.
+Readiness checks connectivity, not migration currency. No CORS origins are allowed
+by default. Errors use a safe envelope and responses include `X-Correlation-ID`.
+
+### Database safety and production separation
+
+The dev overlay removes **all** database host port publications. PostgreSQL is
+reachable only by the API at `db:5432` on a project-scoped internal database
+network. The API also joins the project's default network for its published port.
+Other suite applications are not attached to either network. No external/shared
+network or database is referenced. The project-scoped `postgres_data` volume is
+persistent; `down` preserves it. Never use `down -v` for data you want to retain.
+Changing POSTGRES_PASSWORD does not rotate credentials in an existing volume.
+
+Use a URL-safe POSTGRES_PASSWORD in `.env` (gitignored). The API's Compose URL is
+constructed from it; the standalone AXTOR_DATABASE_URL example uses the internal
+hostname and is not a host PostgreSQL endpoint. Host-side tests mock database
+boundaries. Do not connect these commands to suite or production databases.
+For SQL inspection, use the isolated container:
+
+```sh
+docker compose -p axtor-dev -f compose.yaml -f compose.dev.yaml exec db psql -U axtor -d axtor
+```
+
+`Dockerfile` and base `compose.yaml` remain unchanged. The base alone retains its
+Phase 0 mappings (8000 API, 5432 DB), and is **not** the suite development command.
+Always pass both files for development. Never load `compose.dev.yaml` in
+production. The Dockerfile's command has no source mount or reload. Production
+configuration should set AXTOR_ENVIRONMENT=production to disable docs/OpenAPI;
+Phase 0's base Compose is a local baseline, not a complete production deployment.
+
+### Host-side checks
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -c constraints.txt -e '.[dev]'
-cp .env.example .env
-# Set a local password in both values; URL-encode it in the database URL.
-docker compose up -d db
-alembic upgrade head
-uvicorn axtor.main:create_app --factory --host 127.0.0.1 --port 8000
-```
-
-Alternatively, `docker compose up --build -d`, then explicitly run
-`docker compose run --rm api alembic upgrade head`. Startup never runs migrations.
-Compose is for local development; it requires `POSTGRES_PASSWORD` in `.env` and
-uses the container hostname `db` for the API database connection. Use a URL-safe
-local password, or supply an appropriately encoded connection URL in your own
-deployment configuration. Never point these commands at a production database.
-
-```sh
-curl -i http://127.0.0.1:8000/health
-curl -i http://127.0.0.1:8000/ready
 ruff check .
 ruff format --check .
 mypy
 pytest
 ```
 
-Development docs: <http://127.0.0.1:8000/docs>. `/health` needs no database;
-`/ready` returns 503 when the bounded connectivity probe fails. Errors use
-`{"error":{"code":"...","message":"...","correlation_id":"..."}}` and
-responses include `X-Correlation-ID`. No CORS origins are allowed by default.
-Set `AXTOR_ENVIRONMENT=production` to disable interactive docs and OpenAPI.
-`AXTOR_DATABASE_URL` is required; pool limits and timeout can be set with
-`AXTOR_DB_POOL_SIZE`, `AXTOR_DB_MAX_OVERFLOW`, `AXTOR_DB_TIMEOUT_SECONDS`.
+### Disposable migration validation
 
-## Disposable migration validation
-
-Use a distinct Compose project and database volume, not an existing database:
+Stop the development API first so that port 8013 is free. Use a distinct project
+and its own volume; never point this at existing databases:
 
 ```sh
-docker compose -p axtor-phase0-check up --build -d
-# With no other local stack occupying ports 5432/8000:
-docker compose -p axtor-phase0-check run --rm api alembic upgrade head
-docker compose -p axtor-phase0-check run --rm api alembic current
-docker compose -p axtor-phase0-check run --rm api alembic check
-docker compose -p axtor-phase0-check run --rm api alembic downgrade base
-docker compose -p axtor-phase0-check run --rm api alembic upgrade head
-curl -f http://127.0.0.1:8000/health
-curl -f http://127.0.0.1:8000/ready
-docker compose -p axtor-phase0-check down -v
+docker compose -p axtor-net-check -f compose.yaml -f compose.dev.yaml up --build -d --wait
+docker compose -p axtor-net-check -f compose.yaml -f compose.dev.yaml exec api alembic upgrade head
+docker compose -p axtor-net-check -f compose.yaml -f compose.dev.yaml exec api alembic current
+docker compose -p axtor-net-check -f compose.yaml -f compose.dev.yaml exec api alembic check
+docker compose -p axtor-net-check -f compose.yaml -f compose.dev.yaml exec api alembic downgrade base
+docker compose -p axtor-net-check -f compose.yaml -f compose.dev.yaml exec api alembic upgrade head
+curl -f http://127.0.0.1:8013/health
+curl -f http://127.0.0.1:8013/ready
+docker compose -p axtor-net-check -f compose.yaml -f compose.dev.yaml down -v
 ```
 
-The final command deletes only that disposable project's database volume. CI
-runs the same migration cycle against a fresh PostgreSQL service. Unit tests mock
-database boundaries; CI also exercises real connectivity and API probes.
+The last command deletes only the disposable project's database volume. CI also
+runs the migration cycle against a fresh PostgreSQL service. See
+[networking validation](docs/DEV_NETWORK_REPORT.md) for actual verification and
+operator-confirmed live acceptance results.
 
 `constraints.txt` records the tested dependency versions; update it deliberately
 and rerun checks when upgrading. It is a version snapshot, not a hash-verified
