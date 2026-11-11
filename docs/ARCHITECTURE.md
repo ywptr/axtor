@@ -68,3 +68,11 @@ The database has no host publication and joins a project-scoped internal network
 the API joins that network and the project default network. No shared suite
 networks are attached. The base Compose and Dockerfile remain unchanged; only
 explicitly selected development invocations apply this overlay.
+
+## Phase 1A canonical tenant persistence
+
+Revision `0002` adds externally keyed tenant references, consumer application and
+workspace references, and isolated policy profiles. The Phase 0 discussion above
+records the historical empty baseline; startup and HTTP behavior remain unchanged.
+See [Phase 1A report](PHASE1A_REPORT.md) for schema constraints, the internal verified
+context boundary, isolation guarantees, migration validation and Phase 1B handoffs.

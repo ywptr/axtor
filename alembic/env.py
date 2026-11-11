@@ -6,6 +6,7 @@ from sqlalchemy.pool import NullPool
 
 from alembic import context
 from axtor.core.config import Settings
+from axtor.persistence import models  # noqa: F401
 from axtor.persistence.database import Base
 
 
